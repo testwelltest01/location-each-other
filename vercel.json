@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "app/main.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "react-web-app/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "buildCommand": "npm run build",
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "app/main.py"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "react-web-app/assets/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "react-web-app/$1",
+      "continue": true
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "react-web-app/index.html"
+    }
+  ]
+}

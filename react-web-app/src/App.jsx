@@ -3,13 +3,14 @@ import axios from 'axios';
 import { MapPin, Navigation, Info, AlertCircle, Share2 } from 'lucide-react';
 import MapComponent from './components/MapComponent';
 
-const API_BASE_URL = 'http://172.30.1.83:8000'; // FIXME: 실제 배포 시 환경 변수 사용
+const API_BASE_URL = ''; // Vercel 배포 시 /api 경로로 프록시됨
 
 function App() {
   const [token, setToken] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
   const [passengerLocation, setPassengerLocation] = useState(null);
   const [error, setError] = useState(null);
+  const [warning, setWarning] = useState(null);
   const [sessionInfo, setSessionInfo] = useState(null);
   const [isSharing, setIsSharing] = useState(false);
 
@@ -73,8 +74,14 @@ function App() {
   // 탑승자 위치 공유 (HTML5 Geolocation)
   const startSharing = () => {
     if (!navigator.geolocation) {
-      setError('이 브라우저는 위치 정보를 지원하지 않습니다.');
+      setWarning('브라우저가 위치 공유를 지원하지 않습니다.');
       return;
+    }
+
+    // HTTP 환경에서는 localhost가 아니면 위치 공유가 차단됨
+    const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+    if (!isSecure) {
+      setWarning('HTTP 환경에서는 보안상 위치 전송이 제한될 수 있습니다 (HTTPS 필요).');
     }
 
     setIsSharing(true);
@@ -87,10 +94,11 @@ function App() {
         };
         setPassengerLocation(loc);
         sendLocationToServer(loc);
+        setWarning(null); // 성공 시 경고 제거
       },
       (err) => {
         console.error('Geolocation error:', err);
-        setError('위치 정보를 가져올 수 없습니다. 권한을 확인해 주세요.');
+        setWarning('위치 정보를 가져올 수 없습니다 (권한 혹은 주소 보안 확인).');
         setIsSharing(false);
       },
       { enableHighAccuracy: true, maximumAge: 5000 }
@@ -138,6 +146,16 @@ function App() {
             passengerLocation={passengerLocation} 
         />
       </div>
+
+      {/* Warning Overlay */}
+      {warning && (
+        <div className="absolute top-20 left-6 right-6 z-20">
+          <div className="bg-amber-500/90 text-white text-xs p-2 rounded-lg text-center backdrop-blur-md">
+            <AlertCircle size={14} className="inline mr-1 mb-0.5" />
+            {warning}
+          </div>
+        </div>
+      )}
 
       {/* Header Overlay */}
       <div className="absolute top-6 left-6 right-6 z-10 flex justify-between items-start">
