@@ -5,6 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+Set-Location $PSScriptRoot
+
 if (-not $env:DATABASE_URL) {
   $env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/pickup_mvp"
 }

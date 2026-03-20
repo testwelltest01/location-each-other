@@ -14,25 +14,25 @@ npm run start
 ```
 
 - `expo start` 실행 후 표시되는 QR 코드를 iPhone 12 mini의 Expo Go로 스캔합니다.
-- 실제 단말에서 테스트하려면 같은 네트워크(Wi-Fi)에서 백엔드 주소를 PC LAN IP로 설정하세요.
+- 같은 Wi-Fi에서 백엔드가 실행되어 있어야 합니다.
 
 ## 2) 앱 환경변수
 
-`EXPO_PUBLIC_NAVER_MAP_CLIENT_ID`를 사용해 Naver Map 클라이언트 키를 주입합니다.
-- React Native 앱에서 읽는 변수: `EXPO_PUBLIC_NAVER_MAP_CLIENT_ID`
-- 클라이언트 키는 앱 시작 전 환경변수로 설정
-
-Windows 예시(PowerShell):
+`EXPO_PUBLIC_API_BASE_URL`은 선택값입니다.
+- 미설정이면 앱은 Expo host 정보(Metro)가 제공하는 IP를 자동으로 읽어 `http://<PC_IP>:8000`으로 연결을 시도합니다.
+- 문제가 있으면 아래 환경변수로 고정하세요.
 
 ```powershell
 $env:EXPO_PUBLIC_NAVER_MAP_CLIENT_ID="<YOUR_NAVER_CLIENT_ID>"
+$env:EXPO_PUBLIC_API_BASE_URL="http://<PC_IP>:8000"
 npm run start
 ```
 
-권장: 프로젝트 루트에 `.env` 또는 `.env.local` 작성
+권장: `react-native-app/.env` 또는 `.env.local`에 작성
 
 ```bash
 EXPO_PUBLIC_NAVER_MAP_CLIENT_ID=<YOUR_NAVER_CLIENT_ID>
+EXPO_PUBLIC_API_BASE_URL=http://<PC_IP>:8000
 ```
 
 > `Client Secret`은 앱에 전달하지 않습니다. Secret은 서버/백엔드에서만 사용하세요.

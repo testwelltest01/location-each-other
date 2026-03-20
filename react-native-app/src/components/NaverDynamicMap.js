@@ -1,68 +1,136 @@
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet } from "react-native";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 
-// [학습 포인트 1] 지도 기본 중심점 (서울시청 기준)
 const DEFAULT_CENTER = {
   lat: 37.5665,
   lng: 126.978,
 };
 
-/**
- * [학습 포인트 2] WebView에 주입할 HTML 문자열 생성 함수
- * 네이티브 SDK 대신 웹용 JS SDK를 WebView 안에서 실행하여 지도를 표시합니다.
- * 이 방식은 Expo Go 환경에서도 별도의 네이티브 설정 없이 지도를 띄울 수 있는 장점이 있습니다.
- */
-function buildMapHtml({
-  clientId,
-  latitude,
-  longitude,
-  zoom,
-  markerTitle,
-}) {
-  const lat = Number.isFinite(latitude) ? latitude : DEFAULT_CENTER.lat;
-  const lng = Number.isFinite(longitude) ? longitude : DEFAULT_CENTER.lng;
+function buildMapHtml({ clientId, zoom }) {
   const level = Number.isFinite(zoom) ? zoom : 16;
-  const title = JSON.stringify(markerTitle || "현재 위치");
+  const title = JSON.stringify("현재 위치");
 
   return `
     <!doctype html>
     <html>
       <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <meta charset="utf-8" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        />
         <style>
-          html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; }
-          body { overflow: hidden; background-color: #eee; }
+          html,
+          body,
+          #map {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+          }
+          body {
+            overflow: hidden;
+            background-color: #eee;
+          }
         </style>
-        <!-- 네이버 지도 JS SDK 로드 (클라이언트 ID 기반) -->
         <script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${clientId}"></script>
       </head>
       <body>
         <div id="map"></div>
         <script>
-          function initialize() {
-            // 지도 생성
-            var map = new naver.maps.Map("map", {
-              center: new naver.maps.LatLng(${lat}, ${lng}),
-              zoom: ${level},
-              zoomControl: false, // UI 복잡도를 줄이기 위해 줌 컨트롤 숨김
-              logoControl: true
-            });
-            // 마커 생성 및 표시
-            new naver.maps.Marker({
-              position: new naver.maps.LatLng(${lat}, ${lng}),
-              map: map,
-              title: ${title},
-              clickable: false
-            });
-          }
-          // 창 로드가 완료된 후 지도 초기화 실행
-          window.onload = initialize;
+          (function () {
+            var mapInstance = null;
+            var markerInstance = null;
+            var defaultCenterLat = ${DEFAULT_CENTER.lat};
+            var defaultCenterLng = ${DEFAULT_CENTER.lng};
+            var defaultZoom = ${level};
+            var defaultTitle = ${title};
+
+            function isValidCoord(v) {
+              return typeof v === "number" && Number.isFinite(v);
+            }
+
+            function safeLatLng(lat, lng) {
+              return new naver.maps.LatLng(lat, lng);
+            }
+
+            function applyLocation(lat, lng, titleText) {
+              if (!isValidCoord(lat) || !isValidCoord(lng) || !mapInstance || !markerInstance) {
+                return;
+              }
+
+              var next = safeLatLng(lat, lng);
+              mapInstance.setCenter(next);
+              markerInstance.setPosition(next);
+
+              if (titleText) {
+                markerInstance.setTitle(titleText);
+              }
+            }
+
+            function flushPendingLocations() {
+              if (!Array.isArray(window.__pendingMapLocation)) {
+                return;
+              }
+
+              for (var i = 0; i < window.__pendingMapLocation.length; i += 1) {
+                var item = window.__pendingMapLocation[i];
+                applyLocation(item[0], item[1], item[2]);
+              }
+
+              window.__pendingMapLocation = [];
+            }
+
+            function initMap() {
+              if (typeof naver === "undefined" || !naver || !naver.maps) {
+                window.setTimeout(initMap, 300);
+                return;
+              }
+
+              var defaultCenter = safeLatLng(defaultCenterLat, defaultCenterLng);
+              mapInstance = new naver.maps.Map("map", {
+                center: defaultCenter,
+                zoom: defaultZoom,
+                zoomControl: false,
+                logoControl: true,
+              });
+
+              markerInstance = new naver.maps.Marker({
+                position: defaultCenter,
+                map: mapInstance,
+                title: defaultTitle,
+                clickable: false,
+              });
+
+              flushPendingLocations();
+            }
+
+            window.__setMapLocation = function (lat, lng, titleText) {
+              if (!mapInstance || !markerInstance || typeof naver === "undefined" || !naver.maps) {
+                window.__pendingMapLocation = window.__pendingMapLocation || [];
+                window.__pendingMapLocation.push([Number(lat), Number(lng), titleText]);
+                return;
+              }
+
+              applyLocation(Number(lat), Number(lng), titleText);
+            };
+
+            if (document.readyState === "complete") {
+              initMap();
+            } else {
+              window.onload = initMap;
+            }
+          })();
         </script>
       </body>
     </html>
   `;
+}
+
+function sanitizeCoord(value, fallback) {
+  const asNumber = Number(value);
+  return Number.isFinite(asNumber) ? asNumber : fallback;
 }
 
 export default function NaverDynamicMap({
@@ -73,28 +141,47 @@ export default function NaverDynamicMap({
   markerTitle,
   style,
 }) {
-  /**
-   * [학습 포인트 3] useMemo를 통한 웹 뷰 콘텐츠 최적화
-   * 좌표나 줌 레벨이 바뀔 때만 HTML을 새로 생성하여 성능을 유지합니다.
-   */
+  const webViewRef = useRef(null);
+  const mapReadyRef = useRef(false);
+  const pendingLoadRef = useRef(false);
+  const retryRef = useRef(0);
+  const [reloadSeq, setReloadSeq] = useState(0);
+
   const html = useMemo(
     () =>
       buildMapHtml({
         clientId,
-        latitude,
-        longitude,
         zoom,
-        markerTitle,
       }),
-    [clientId, latitude, longitude, zoom, markerTitle]
+    [clientId, zoom]
   );
 
-  // 클라이언트 ID가 없는 경우 사용자에게 설정 안내 메시지 표시
+  const updateLocation = () => {
+    if (!webViewRef.current || !mapReadyRef.current) {
+      pendingLoadRef.current = true;
+      return;
+    }
+
+    const lat = sanitizeCoord(latitude, DEFAULT_CENTER.lat);
+    const lng = sanitizeCoord(longitude, DEFAULT_CENTER.lng);
+    const title = JSON.stringify(markerTitle || "현재 위치");
+
+    webViewRef.current.injectJavaScript(`
+      window.__setMapLocation(${lat}, ${lng}, ${title});
+      true;
+    `);
+    pendingLoadRef.current = false;
+  };
+
+  useEffect(() => {
+    updateLocation();
+  }, [latitude, longitude, markerTitle]);
+
   if (!clientId) {
     return (
       <View style={[styles.empty, style]}>
         <Text style={styles.emptyText}>
-          환경변수(EXPO_PUBLIC_NAVER_MAP_CLIENT_ID)를 설정해주세요.
+          환경변수 EXPO_PUBLIC_NAVER_MAP_CLIENT_ID가 설정되어 있지 않습니다.
         </Text>
       </View>
     );
@@ -102,17 +189,29 @@ export default function NaverDynamicMap({
 
   return (
     <View style={[styles.container, style]}>
-      {/* 
-        [학습 포인트 4] WebView 컴포넌트 사용법
-        - source={{ html }}: 직접 작성한 HTML 문자열을 화면에 렌더링합니다.
-        - originWhitelist: 보안 정책상 허용할 출처를 지정합니다.
-        - javaScriptEnabled: SDK 실행을 위해 JS 활성화가 필수입니다.
-      */}
-      <WebView 
-        source={{ html }} 
-        originWhitelist={["*"]} 
-        javaScriptEnabled 
-        style={styles.webview} 
+      <WebView
+        key={reloadSeq}
+        ref={webViewRef}
+        source={{ html }}
+        originWhitelist={["*"]}
+        javaScriptEnabled
+        onLoad={() => {
+          mapReadyRef.current = true;
+          retryRef.current = 0;
+
+          if (pendingLoadRef.current) {
+            updateLocation();
+          }
+        }}
+        onError={() => {
+          mapReadyRef.current = false;
+
+          if (retryRef.current < 1) {
+            retryRef.current += 1;
+            setReloadSeq((v) => v + 1);
+          }
+        }}
+        style={styles.webview}
       />
     </View>
   );
