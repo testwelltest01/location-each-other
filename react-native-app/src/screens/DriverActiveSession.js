@@ -8,6 +8,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Share,
+  Alert,
 } from "react-native";
 import * as Location from "expo-location";
 import requestJson, { authHeader } from "../api/httpClient";
@@ -37,7 +38,7 @@ export default function DriverActiveSession({ route, navigation }) {
   const [driverLocation, setDriverLocation] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [passengerLocations, setPassengerLocations] = useState([]);
-  const [linkTokens, setLinkTokens] = useState(linkToken ? [linkToken] : []);
+  const [links, setLinks] = useState([]); // [linkInfo, ...]
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -58,8 +59,11 @@ export default function DriverActiveSession({ route, navigation }) {
 
   // 화면 진입 시 자동 공유 시작
   useEffect(() => {
-    if (sessionId && !sharing) {
-      toggleShare();
+    if (sessionId) {
+      fetchLinks();
+      if (!sharing) {
+        toggleShare();
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -136,31 +140,103 @@ export default function DriverActiveSession({ route, navigation }) {
     // 즉시 한 번 전송
     await sendCurrentLocation();
 
-    // 5초 주기로 전송 및 탑승자 위치 조회
+    // 2초 주기로 전송 및 탑승자 위치 조회
     timerRef.current = setInterval(async () => {
       await sendCurrentLocation();
       await fetchPassengerLocations();
-    }, 5000);
+    }, 2000);
+  };
+
+  const fetchLinks = async () => {
+    if (!sessionId) return;
+    try {
+      const result = await requestJson({
+        method: "GET",
+        path: `/api/v1/sessions/${sessionId}/links`,
+        headers: authHeader(driverToken),
+      });
+      // 무효화되지 않은 링크만 필터링하거나 전체를 보여줄 수 있음. 여기서는 전체를 보여주되 상태 표시
+      setLinks(result.links || []);
+    } catch (e) {
+      console.log("링크 목록 조회 실패:", e.message);
+    }
   };
 
   const createNewLink = async () => {
     if (!sessionId) return;
     setIsLoading(true);
     try {
-      const result = await requestJson({
+      await requestJson({
         method: "POST",
         path: `/api/v1/sessions/${sessionId}/links`,
         headers: authHeader(driverToken),
       });
-      setLinkTokens((prev) => [...prev, result.link_token]);
+      await fetchLinks();
       setMessage("새로운 공유 링크가 생성되었습니다.");
       setTimeout(() => setMessage(""), 3000);
     } catch (e) {
       setError("링크 생성 실패: " + e.message);
     } finally {
-      setIsLoading(true);
       setIsLoading(false);
     }
+  };
+
+  const revokeSingleLink = async (token) => {
+    if (!sessionId) return;
+    setIsLoading(true);
+    try {
+      await requestJson({
+        method: "DELETE",
+        path: `/api/v1/sessions/${sessionId}/links/${token}`,
+        headers: authHeader(driverToken),
+      });
+      await fetchLinks();
+      setMessage("해당 링크가 무효화되었습니다.");
+      setTimeout(() => setMessage(""), 3000);
+    } catch (e) {
+      setError("링크 무효화 실패: " + e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const updateLinkName = async (token, newName) => {
+    if (!sessionId || !newName) return;
+    setIsLoading(true);
+    try {
+      await requestJson({
+        method: "PATCH",
+        path: `/api/v1/sessions/${sessionId}/links/${token}`,
+        headers: {
+          ...authHeader(driverToken),
+          "Content-Type": "application/json",
+        },
+        body: { display_name: newName },
+      });
+      await fetchLinks();
+      setMessage("링크 이름이 변경되었습니다.");
+      setTimeout(() => setMessage(""), 3000);
+    } catch (e) {
+      setError("이름 변경 실패: " + e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRenamePress = (link) => {
+    Alert.prompt(
+      "링크 이름 변경",
+      "이 링크의 이름을 입력해주세요.",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "확인",
+          onPress: (newName) => updateLinkName(link.link_token, newName),
+        },
+      ],
+      "plain-text",
+      link.display_name || "",
+    );
   };
 
   const revokeAllLinks = async () => {
@@ -172,7 +248,7 @@ export default function DriverActiveSession({ route, navigation }) {
         path: `/api/v1/sessions/${sessionId}/links`,
         headers: authHeader(driverToken),
       });
-      setLinkTokens([]);
+      await fetchLinks();
       setPassengerLocations([]);
       setMessage("모든 링크가 무효화되었습니다.");
       setTimeout(() => setMessage(""), 3000);
@@ -223,7 +299,8 @@ export default function DriverActiveSession({ route, navigation }) {
   };
 
   const copyToClipboard = async (token) => {
-    const fullUrl = `http://172.30.1.83:5173/?token=${token}`;
+    // Vercel 운영 서버 주소
+    const fullUrl = `https://moving-gamma.vercel.app/?token=${token}`;
     try {
       await Share.share({
         message: `탑승자 위치 공유 링크입니다:\n${fullUrl}`,
@@ -262,6 +339,29 @@ export default function DriverActiveSession({ route, navigation }) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const getConnectionStatus = (link) => {
+    if (link.is_revoked) return "revoked";
+
+    const loc = passengerLocations.find(
+      (p) => p.link_token === link.link_token,
+    );
+    if (!loc) return "disconnected";
+
+    // 수동 중단 체크 (0,0)
+    if (loc.latitude === 0 && loc.longitude === 0) return "disconnected";
+
+    // 타임아웃 체크 (최근 20초 이내 수신 여부)
+    const now = Date.now();
+    const recordedTime = new Date(loc.recorded_at).getTime();
+    const diffSeconds = (now - recordedTime) / 1000;
+
+    if (diffSeconds > 20) {
+      return "disconnected";
+    }
+
+    return "connected";
   };
 
   return (
@@ -308,21 +408,97 @@ export default function DriverActiveSession({ route, navigation }) {
       </View>
 
       <View style={styles.linkCard}>
-        <Text style={styles.cardTitle}>탑승자 링크 관리 ({linkTokens.length})</Text>
+        <Text style={styles.cardTitle}>
+          탑승자 링크 관리 ({links.filter((l) => !l.is_revoked).length})
+        </Text>
         <View style={styles.buttonRow}>
-            <Button title="새 링크 생성" onPress={createNewLink} color="#4CD964" />
-            <Button title="모든 링크 무효화" onPress={revokeAllLinks} color="#FF3B30" />
+          <Button
+            title="새 링크 생성"
+            onPress={createNewLink}
+            color="#4CD964"
+          />
+          <Button
+            title="전체 무효화"
+            onPress={revokeAllLinks}
+            color="#FF3B30"
+          />
         </View>
         <View style={styles.linkList}>
-            {linkTokens.map((t, idx) => (
-                <View key={t} style={styles.linkRow}>
-                    <Text selectable={true} style={styles.linkItem}>{idx + 1}. {t.substring(0, 15)}...</Text>
-                    <TouchableOpacity style={styles.copyBtn} onPress={() => copyToClipboard(t)}>
-                        <Text style={styles.copyBtnText}>확인</Text>
-                    </TouchableOpacity>
-                </View>
-            ))}
-            {linkTokens.length === 0 && <Text style={styles.emptyLink}>생성된 링크가 없습니다.</Text>}
+          {links.map((link, idx) => (
+            <View
+              key={link.link_token}
+              style={[styles.linkRow, link.is_revoked && styles.revokedRow]}
+            >
+              <TouchableOpacity
+                style={styles.linkInfoText}
+                onPress={() => !link.is_revoked && handleRenamePress(link)}
+              >
+                <Text
+                  style={[
+                    styles.linkItem,
+                    link.is_revoked && styles.revokedText,
+                  ]}
+                >
+                  {idx + 1}.{" "}
+                  {link.display_name || link.link_token.substring(0, 8)}{" "}
+                  {link.is_revoked ? "(만료)" : ""}
+                  {!link.is_revoked &&
+                    getConnectionStatus(link) === "disconnected" && (
+                      <Text
+                        style={{
+                          color: "#d9534f",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        {" "}
+                        (연결 중단됨)
+                      </Text>
+                    )}
+                </Text>
+                <Text style={styles.accessText}>
+                  접속: {link.access_count}회 | 클릭하여 이름 변경
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.linkActionButtons}>
+                {!link.is_revoked && (
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      getConnectionStatus(link) === "connected"
+                        ? styles.statusBadgeO
+                        : styles.statusBadgeX,
+                    ]}
+                  >
+                    <Text style={styles.statusBadgeText}>
+                      {getConnectionStatus(link) === "connected"
+                        ? "연결O"
+                        : "연결X"}
+                    </Text>
+                  </View>
+                )}
+                {!link.is_revoked && (
+                  <TouchableOpacity
+                    style={styles.copyBtn}
+                    onPress={() => copyToClipboard(link.link_token)}
+                  >
+                    <Text style={styles.copyBtnText}>공유</Text>
+                  </TouchableOpacity>
+                )}
+                {!link.is_revoked && (
+                  <TouchableOpacity
+                    style={styles.deleteBtn}
+                    onPress={() => revokeSingleLink(link.link_token)}
+                  >
+                    <Text style={styles.deleteBtnText}>삭제</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          ))}
+          {links.length === 0 && (
+            <Text style={styles.emptyLink}>생성된 링크가 없습니다.</Text>
+          )}
         </View>
       </View>
 
@@ -334,7 +510,9 @@ export default function DriverActiveSession({ route, navigation }) {
           disabled={!sessionId || isLoading}
         />
         {sharing && (
-          <Text style={styles.note}>5초 간격으로 서버에 위치를 전송 및 탑승자 확인 중입니다.</Text>
+          <Text style={styles.note}>
+            2초 간격으로 서버에 위치를 전송 및 탑승자 확인 중입니다.
+          </Text>
         )}
       </View>
 
@@ -460,5 +638,59 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#007AFF",
     fontWeight: "700",
+  },
+  deleteBtn: {
+    backgroundColor: "#fff0f0",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#ffcccc",
+  },
+  deleteBtnText: {
+    fontSize: 12,
+    color: "#FF3B30",
+    fontWeight: "700",
+  },
+  linkActionButtons: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  revokedRow: {
+    opacity: 0.5,
+    backgroundColor: "#f2f2f2",
+  },
+  revokedText: {
+    textDecorationLine: "line-through",
+  },
+  accessText: {
+    fontSize: 10,
+    color: "#888",
+  },
+  linkInfoText: {
+    flex: 1,
+  },
+  statusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 4,
+  },
+  statusBadgeO: {
+    backgroundColor: "#E8F5E9",
+    borderWidth: 1,
+    borderColor: "#A5D6A7",
+  },
+  statusBadgeX: {
+    backgroundColor: "#FFEBEE",
+    borderWidth: 1,
+    borderColor: "#FFCDD2",
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#333",
   },
 });

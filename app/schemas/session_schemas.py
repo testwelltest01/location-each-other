@@ -96,3 +96,27 @@ class PassengerLocationsResponse(BaseModel):
     """
     session_id: UUID
     passengers: list[PassengerLocation]
+class SessionLinkInfo(BaseModel):
+    """
+    개별 공유 링크의 상세 정보입니다.
+    """
+    link_token: str
+    link_url: str
+    created_at: datetime
+    expires_at: datetime
+    is_revoked: bool
+    access_count: int
+    display_name: Optional[str] = None
+
+class UpdateLinkRequest(BaseModel):
+    """
+    링크 정보를 수동으로 수정할 때 보내는 요청 스키마입니다.
+    """
+    display_name: str
+
+class SessionLinksResponse(BaseModel):
+    """
+    세션에 생성된 모든 링크 목록을 반환하는 스키마입니다.
+    """
+    session_id: UUID
+    links: list[SessionLinkInfo]

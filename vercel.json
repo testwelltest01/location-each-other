@@ -9,7 +9,6 @@
       "src": "react-web-app/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "buildCommand": "npm run build",
         "distDir": "dist"
       }
     }
@@ -29,7 +28,7 @@
       "continue": true
     },
     {
-      "handle": "filesystem"
+        "handle": "filesystem"
     },
     {
       "src": "/(.*)",

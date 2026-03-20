@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -75,6 +75,8 @@ class SessionLink(Base):
         nullable=False,
     )
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    device_info: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped[PickupSession] = relationship(back_populates="links")
 
@@ -102,3 +104,5 @@ class LocationPoint(Base):
         nullable=False,
         default=func.now(),
     )
+    device_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+

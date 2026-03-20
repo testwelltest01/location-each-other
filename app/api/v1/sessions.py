@@ -14,6 +14,8 @@ from app.schemas.session_schemas import (
     UpdateDriverLocationRequest,
     CreateLinkResponse,
     PassengerLocationsResponse,
+    SessionLinksResponse,
+    UpdateLinkRequest,
 )
 from app.schemas.link_schemas import ShareLocationResponse
 from app.services import session_service
@@ -137,4 +139,45 @@ def get_passengers(
     """
     token = _extract_bearer_token(authorization)
     return session_service.get_passenger_locations(session_id, token)
+
+
+@router.get("/sessions/{session_id}/links", response_model=SessionLinksResponse)
+def get_session_links(
+    session_id: UUID,
+    authorization: Optional[str] = Header(default=None),
+) -> SessionLinksResponse:
+    """
+    세션에 속한 모든 공유 링크 목록을 조회합니다.
+    """
+    token = _extract_bearer_token(authorization)
+    return session_service.get_session_links(session_id, token)
+
+
+@router.delete("/sessions/{session_id}/links/{link_token}")
+def revoke_session_link(
+    session_id: UUID,
+    link_token: str,
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """
+    특정 공유 링크 하나를 삭제(무효화)합니다.
+    """
+    token = _extract_bearer_token(authorization)
+    return session_service.revoke_session_link(session_id, link_token, token)
+
+
+@router.patch("/sessions/{session_id}/links/{link_token}")
+def update_session_link(
+    session_id: UUID,
+    link_token: str,
+    payload: UpdateLinkRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """
+    특정 공유 링크의 정보를 수정합니다 (예: 이름 변경).
+    """
+    token = _extract_bearer_token(authorization)
+    return session_service.update_session_link(
+        session_id, link_token, payload.display_name, token
+    )
 

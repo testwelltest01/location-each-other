@@ -18,6 +18,7 @@ class LocationDTO(BaseModel):
     longitude: float        # 경도
     accuracy_m: Optional[float] = Field(default=None, ge=0)  # 위치 정확도(미터), 음수값은 허용하지 않음
     recorded_at: datetime   # 좌표 기록 시점
+    device_info: Optional[str] = None # 기기 정보 (userAgent)
 
 
 class ShareLocationRequest(BaseModel):
@@ -28,6 +29,7 @@ class ShareLocationRequest(BaseModel):
     longitude: float
     accuracy_m: Optional[float] = Field(default=None, ge=0)
     recorded_at: Optional[datetime] = None  # 클라이언트가 기록 시간을 제공하지 않을 수 있으므로 Optional 처리
+    device_info: Optional[str] = None
 
 
 class LinkAccessResponse(BaseModel):
@@ -40,6 +42,8 @@ class LinkAccessResponse(BaseModel):
     session_expires_at: datetime
     link_expires_at: datetime
     link_active: bool         # 링크가 여전히 유효한지 여부
+    driver_location: Optional[LocationDTO] = None  # 운전자의 최신 위치 정보 추가
+    device_info: Optional[str] = None              # 링크에 저장된 기기 정보
     message: str
 
 

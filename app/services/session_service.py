@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, desc, select
+from sqlalchemy.sql import func
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,8 @@ from app.schemas.session_schemas import (
     CreateLinkResponse,
     PassengerLocation,
     PassengerLocationsResponse,
+    SessionLinkInfo,
+    SessionLinksResponse,
 )
 
 
@@ -80,6 +83,7 @@ def create_session(req: CreateSessionRequest, driver_token: Optional[str]) -> Cr
             max_access_count=req.max_access_count,
             expires_at=now + timedelta(minutes=req.link_ttl_minutes),
             is_revoked=False,
+            display_name="승객 1",
         )
         db.add(link_obj)
         db.flush()
@@ -133,10 +137,31 @@ def get_link_state(link_token: str) -> LinkAccessResponse:
             )
         )
 
+        driver_loc_dto = None
         if is_active:
             # 유효한 접근일 경우 카운트 증가 및 마지막 접속 시간 업데이트
             link_obj.access_count += 1
             link_obj.last_accessed_at = now
+            
+            # 운전자의 최신 위치 정보를 가져옵니다.
+            driver_point = db.scalar(
+                select(LocationPoint)
+                .where(
+                    and_(
+                        LocationPoint.session_id == session_obj.session_id,
+                        LocationPoint.actor_type == "driver"
+                    )
+                )
+                .order_by(desc(LocationPoint.recorded_at))
+                .limit(1)
+            )
+            if driver_point:
+                driver_loc_dto = LocationDTO(
+                    latitude=float(driver_point.latitude),
+                    longitude=float(driver_point.longitude),
+                    accuracy_m=driver_point.accuracy_m,
+                    recorded_at=driver_point.recorded_at
+                )
 
         return LinkAccessResponse(
             session_id=session_obj.session_id,
@@ -145,7 +170,9 @@ def get_link_state(link_token: str) -> LinkAccessResponse:
             session_expires_at=session_obj.expires_at,
             link_expires_at=link_obj.expires_at,
             link_active=is_active,
+            driver_location=driver_loc_dto,
             message="link is active" if is_active else "link is not active",
+            device_info=link_obj.device_info,
         )
 
 
@@ -181,6 +208,10 @@ def share_passenger_location(
         if session_obj.status != "active" or now > session_obj.expires_at:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="session not active")
 
+        # 기기 정보 업데이트 (처음 저장하거나 비어있을 경우)
+        if req.device_info and not link_obj.device_info:
+            link_obj.device_info = req.device_info
+
         # 1. 위치 정보 기록 (LocationPoint 모델 생성 및 추가)
         point_obj = LocationPoint(
             session_id=session_obj.session_id,
@@ -190,6 +221,7 @@ def share_passenger_location(
             longitude=req.longitude,
             accuracy_m=req.accuracy_m,
             recorded_at=recorded_at,
+            device_info=req.device_info,
         )
         db.add(point_obj)
         db.flush()
@@ -415,6 +447,12 @@ def create_session_link(session_id: UUID, driver_token: Optional[str]) -> Create
         if session_obj.driver_token != driver_token:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
 
+        from sqlalchemy import func as sqlalchemy_func
+        # 기존 링크 개수 확인 (기본 이름 생성을 위함)
+        link_count = db.scalar(
+            select(sqlalchemy_func.count(SessionLink.link_id)).where(SessionLink.session_id == session_id)
+        )
+
         link_obj = SessionLink(
             session_id=session_id,
             access_token=str(uuid4()),
@@ -422,6 +460,7 @@ def create_session_link(session_id: UUID, driver_token: Optional[str]) -> Create
             access_count=0,
             expires_at=session_obj.expires_at,
             is_revoked=False,
+            display_name=f"승객 {link_count + 1}",
         )
         db.add(link_obj)
         db.flush()
@@ -472,11 +511,11 @@ def get_passenger_locations(session_id: UUID, driver_token: Optional[str]) -> Pa
         if session_obj.driver_token != driver_token:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
 
-        from sqlalchemy import func
+        from sqlalchemy import func as sqlalchemy_func
         subq = (
             select(
                 LocationPoint.link_id,
-                func.max(LocationPoint.recorded_at).label("max_recorded")
+                sqlalchemy_func.max(LocationPoint.recorded_at).label("max_recorded")
             )
             .where(
                 and_(
@@ -515,4 +554,114 @@ def get_passenger_locations(session_id: UUID, driver_token: Optional[str]) -> Pa
             session_id=session_id,
             passengers=passengers
         )
+
+
+def get_session_links(session_id: UUID, driver_token: Optional[str]) -> SessionLinksResponse:
+    """
+    운전자가 세션에 생성된 모든 링크 목록의 상세 정보를 조회합니다.
+    """
+    if not driver_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authorization token is required")
+
+    with get_db_session() as db:
+        session_obj = db.get(PickupSession, session_id)
+        if not session_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        if session_obj.driver_token != driver_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
+
+        # 모든 링크 조회 (최신순)
+        links = db.scalars(
+            select(SessionLink)
+            .where(SessionLink.session_id == session_id)
+            .order_by(desc(SessionLink.created_at))
+        ).all()
+
+        link_infos = []
+        for l in links:
+            link_infos.append(SessionLinkInfo(
+                link_token=l.access_token,
+                link_url=f"/api/v1/links/{l.access_token}",
+                created_at=l.created_at,
+                expires_at=l.expires_at,
+                is_revoked=l.is_revoked,
+                access_count=l.access_count,
+                display_name=l.display_name,
+            ))
+
+        return SessionLinksResponse(
+            session_id=session_id,
+            links=link_infos
+        )
+
+
+def revoke_session_link(session_id: UUID, link_token: str, driver_token: Optional[str]) -> dict:
+    """
+    운전자의 명령으로 특정 링크 하나를 무효화(삭제) 처리합니다.
+    """
+    if not driver_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authorization token is required")
+
+    with get_db_session() as db:
+        session_obj = db.get(PickupSession, session_id)
+        if not session_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        if session_obj.driver_token != driver_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
+
+        # 특정 링크 조회
+        link_obj = db.scalar(
+            select(SessionLink).where(
+                and_(
+                    SessionLink.session_id == session_id,
+                    SessionLink.access_token == link_token
+                )
+            )
+        )
+        
+        if not link_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="link not found")
+
+        if not link_obj.is_revoked:
+            link_obj.is_revoked = True
+            return {"message": "link revoked", "link_token": link_token}
+        else:
+            return {"message": "link already revoked", "link_token": link_token}
+
+
+def update_session_link(
+    session_id: UUID, 
+    link_token: str, 
+    new_name: str, 
+    driver_token: Optional[str]
+) -> dict:
+    """
+    운전자가 특정 링크의 표시 이름을 수정합니다.
+    """
+    if not driver_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authorization token is required")
+
+    with get_db_session() as db:
+        session_obj = db.get(PickupSession, session_id)
+        if not session_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        if session_obj.driver_token != driver_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
+
+        link_obj = db.scalar(
+            select(SessionLink).where(
+                and_(
+                    SessionLink.session_id == session_id,
+                    SessionLink.access_token == link_token
+                )
+            )
+        )
+        if not link_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="link not found")
+
+        link_obj.display_name = new_name
+        return {"message": "link updated", "link_token": link_token, "display_name": new_name}
 

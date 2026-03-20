@@ -9,8 +9,24 @@ from app.api.v1.sessions import router as sessions_router
 from app.db import init_db
 from app import models
 
+try:
+    init_db()
+except Exception as e:
+    logger.error(f"Early init_db failure (non-fatal start): {e}")
 
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+# [학습 포인트] 글로벌 에러 핸들러
+# 500 에러 발생 시 구체적인 원인을 알기 위해 모든 예외를 잡아 응답에 포함시킵니다.
 app = FastAPI(title="Pickup Session MVP")
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal Server Error", "detail": str(exc)},
+    )
 
 # CORS 설정
 app.add_middleware(
