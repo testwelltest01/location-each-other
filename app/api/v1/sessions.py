@@ -11,7 +11,11 @@ from app.schemas.session_schemas import (
     EndSessionRequest,
     DriverLocationResponse,
     EndSessionResponse,
+    UpdateDriverLocationRequest,
+    CreateLinkResponse,
+    PassengerLocationsResponse,
 )
+from app.schemas.link_schemas import ShareLocationResponse
 from app.services import session_service
 
 # [공부 포인트 1] APIRouter
@@ -62,11 +66,28 @@ def get_driver_location(
     특정 세션의 운전자 현재 위치를 조회합니다.
     (운전자 본인 또는 유효한 링크를 가진 탑승자만 가능)
     """
+    print("sessions.py의 def get_driver_location 실행됨.")
     actor_context = session_service.AuthContext(
         driver_token=_extract_bearer_token(authorization),
         link_token=x_link_token,
     )
     return session_service.get_driver_location(session_id, actor_context)
+
+
+@router.post(
+    "/sessions/{session_id}/driver-location",
+    response_model=ShareLocationResponse,
+)
+def update_driver_location(
+    session_id: UUID,
+    payload: UpdateDriverLocationRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> ShareLocationResponse:
+    """
+    운전자가 자신의 현재 위치 정보를 업데이트합니다.
+    """
+    token = _extract_bearer_token(authorization)
+    return session_service.update_driver_location(session_id, payload, token)
 
 
 @router.post("/sessions/{session_id}/end", response_model=EndSessionResponse)
@@ -80,4 +101,40 @@ def end_session(
     """
     token = _extract_bearer_token(authorization)
     return session_service.end_session(session_id, payload, token)
+
+
+@router.post("/sessions/{session_id}/links", response_model=CreateLinkResponse)
+def create_link(
+    session_id: UUID,
+    authorization: Optional[str] = Header(default=None),
+) -> CreateLinkResponse:
+    """
+    운전자가 새로운 탑승자용 공유 링크를 추가로 생성합니다.
+    """
+    token = _extract_bearer_token(authorization)
+    return session_service.create_session_link(session_id, token)
+
+
+@router.delete("/sessions/{session_id}/links")
+def revoke_links(
+    session_id: UUID,
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """
+    세션의 모든 링크를 무효화합니다.
+    """
+    token = _extract_bearer_token(authorization)
+    return session_service.revoke_all_session_links(session_id, token)
+
+
+@router.get("/sessions/{session_id}/passengers", response_model=PassengerLocationsResponse)
+def get_passengers(
+    session_id: UUID,
+    authorization: Optional[str] = Header(default=None),
+) -> PassengerLocationsResponse:
+    """
+    모든 탑승자의 최신 위치 목록을 조회합니다 (운전자용).
+    """
+    token = _extract_bearer_token(authorization)
+    return session_service.get_passenger_locations(session_id, token)
 

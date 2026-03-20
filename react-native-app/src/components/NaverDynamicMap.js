@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 
@@ -8,6 +8,7 @@ const DEFAULT_CENTER = {
 };
 
 function buildMapHtml({ clientId, zoom }) {
+  console.log("NaverDynamicMap.js 실행함");
   const level = Number.isFinite(zoom) ? zoom : 16;
   const title = JSON.stringify("현재 위치");
 
@@ -34,18 +35,24 @@ function buildMapHtml({ clientId, zoom }) {
             background-color: #eee;
           }
         </style>
-        <script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${clientId}"></script>
+        <script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${clientId}"></script>
       </head>
       <body>
         <div id="map"></div>
         <script>
           (function () {
             var mapInstance = null;
-            var markerInstance = null;
-            var defaultCenterLat = ${DEFAULT_CENTER.lat};
-            var defaultCenterLng = ${DEFAULT_CENTER.lng};
-            var defaultZoom = ${level};
-            var defaultTitle = ${title};
+            var driverMarker = null;
+            var passengerMarkers = {}; // linkToken -> marker
+
+            window.navermap_authFailure = function () {
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'AUTH_FAILURE',
+                  message: '네이버 지도 인증 실패 (ncpKeyId 확인 필요)'
+                }));
+              }
+            };
 
             function isValidCoord(v) {
               return typeof v === "number" && Number.isFinite(v);
@@ -55,71 +62,102 @@ function buildMapHtml({ clientId, zoom }) {
               return new naver.maps.LatLng(lat, lng);
             }
 
-            function applyLocation(lat, lng, titleText) {
-              if (!isValidCoord(lat) || !isValidCoord(lng) || !mapInstance || !markerInstance) {
-                return;
-              }
-
-              var next = safeLatLng(lat, lng);
-              mapInstance.setCenter(next);
-              markerInstance.setPosition(next);
-
-              if (titleText) {
-                markerInstance.setTitle(titleText);
-              }
-            }
-
-            function flushPendingLocations() {
-              if (!Array.isArray(window.__pendingMapLocation)) {
-                return;
-              }
-
-              for (var i = 0; i < window.__pendingMapLocation.length; i += 1) {
-                var item = window.__pendingMapLocation[i];
-                applyLocation(item[0], item[1], item[2]);
-              }
-
-              window.__pendingMapLocation = [];
-            }
-
             function initMap() {
               if (typeof naver === "undefined" || !naver || !naver.maps) {
                 window.setTimeout(initMap, 300);
                 return;
               }
 
-              var defaultCenter = safeLatLng(defaultCenterLat, defaultCenterLng);
+              var defaultCenter = safeLatLng(${DEFAULT_CENTER.lat}, ${DEFAULT_CENTER.lng});
               mapInstance = new naver.maps.Map("map", {
                 center: defaultCenter,
-                zoom: defaultZoom,
+                zoom: ${level},
                 zoomControl: false,
                 logoControl: true,
               });
 
-              markerInstance = new naver.maps.Marker({
+              // 운전자 마커 (기본 파란색 스타일)
+              driverMarker = new naver.maps.Marker({
                 position: defaultCenter,
                 map: mapInstance,
-                title: defaultTitle,
+                title: ${title},
                 clickable: false,
+                icon: {
+                    content: '<div style="background-color:#007AFF; width:12px; height:12px; border-radius:6px; border:2px solid #fff; box-shadow:0 0 4px rgba(0,0,0,0.4);"></div>',
+                    anchor: new naver.maps.Point(6, 6)
+                }
               });
 
-              flushPendingLocations();
+              if (window.__pendingDriverLocation) {
+                window.__setMapLocation(...window.__pendingDriverLocation);
+                window.__pendingDriverLocation = null;
+              }
+              if (window.__pendingPassengerLocations) {
+                window.__setPassengerLocations(window.__pendingPassengerLocations);
+                window.__pendingPassengerLocations = null;
+              }
             }
 
             window.__setMapLocation = function (lat, lng, titleText) {
-              if (!mapInstance || !markerInstance || typeof naver === "undefined" || !naver.maps) {
-                window.__pendingMapLocation = window.__pendingMapLocation || [];
-                window.__pendingMapLocation.push([Number(lat), Number(lng), titleText]);
+              if (!mapInstance || !driverMarker) {
+                window.__pendingDriverLocation = [lat, lng, titleText];
+                return;
+              }
+              var pos = safeLatLng(Number(lat), Number(lng));
+              driverMarker.setPosition(pos);
+              if (titleText) driverMarker.setTitle(titleText);
+              mapInstance.setCenter(pos);
+            };
+
+            window.__setPassengerLocations = function (passengers) {
+              if (!mapInstance) {
+                window.__pendingPassengerLocations = passengers;
                 return;
               }
 
-              applyLocation(Number(lat), Number(lng), titleText);
+              var currentTokens = {};
+              passengers.forEach(function(p) {
+                var token = p.link_token;
+                currentTokens[token] = true;
+                var pos = safeLatLng(Number(p.latitude), Number(p.longitude));
+
+                if (passengerMarkers[token]) {
+                  passengerMarkers[token].setPosition(pos);
+                } else {
+                  passengerMarkers[token] = new naver.maps.Marker({
+                    position: pos,
+                    map: mapInstance,
+                    title: "탑승자 " + token.substring(0,4),
+                    icon: {
+                        content: '<div style="background-color:#4CD964; width:10px; height:10px; border-radius:5px; border:2px solid #fff; box-shadow:0 0 4px rgba(0,0,0,0.4);"></div>',
+                        anchor: new naver.maps.Point(5, 5)
+                    }
+                  });
+                }
+              });
+
+              // 사라진 링크 토큰 마커 제거
+              Object.keys(passengerMarkers).forEach(function(token) {
+                if (!currentTokens[token]) {
+                  passengerMarkers[token].setMap(null);
+                  delete passengerMarkers[token];
+                }
+              });
             };
 
             if (document.readyState === "complete") {
               initMap();
             } else {
               window.onload = initMap;
+            }
+
+            // 디버깅을 위해 현재 오리진(주소)을 앱으로 보냅니다.
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'DEBUG_ORIGIN',
+                origin: window.location.origin,
+                href: window.location.href
+              }));
             }
           })();
         </script>
@@ -139,6 +177,7 @@ export default function NaverDynamicMap({
   longitude,
   zoom = 16,
   markerTitle,
+  passengers = [], // [{ link_token, latitude, longitude }]
   style,
 }) {
   const webViewRef = useRef(null);
@@ -153,7 +192,7 @@ export default function NaverDynamicMap({
         clientId,
         zoom,
       }),
-    [clientId, zoom]
+    [clientId, zoom],
   );
 
   const updateLocation = () => {
@@ -177,6 +216,16 @@ export default function NaverDynamicMap({
     updateLocation();
   }, [latitude, longitude, markerTitle]);
 
+  useEffect(() => {
+    if (!webViewRef.current || !mapReadyRef.current) return;
+
+    const passengersJson = JSON.stringify(passengers);
+    webViewRef.current.injectJavaScript(`
+      window.__setPassengerLocations(${passengersJson});
+      true;
+    `);
+  }, [passengers]);
+
   if (!clientId) {
     return (
       <View style={[styles.empty, style]}>
@@ -192,7 +241,7 @@ export default function NaverDynamicMap({
       <WebView
         key={reloadSeq}
         ref={webViewRef}
-        source={{ html }}
+        source={{ html, baseUrl: "http://localhost" }}
         originWhitelist={["*"]}
         javaScriptEnabled
         onLoad={() => {
@@ -209,6 +258,20 @@ export default function NaverDynamicMap({
           if (retryRef.current < 1) {
             retryRef.current += 1;
             setReloadSeq((v) => v + 1);
+          }
+        }}
+        onMessage={(event) => {
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === 'DEBUG_ORIGIN') {
+              console.log("[MAP DEBUG] Current Origin:", data.origin);
+              console.log("[MAP DEBUG] Current Href:", data.href);
+            } else if (data.type === 'AUTH_FAILURE') {
+              console.log("[MAP DEBUG] AUTH FAILURE:", data.message);
+              setError && setError(data.message);
+            }
+          } catch (e) {
+            console.log("[MAP DEBUG] Error parsing message:", e);
           }
         }}
         style={styles.webview}

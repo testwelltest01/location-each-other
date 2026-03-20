@@ -23,8 +23,12 @@ from app.schemas.session_schemas import (
     CreateSessionRequest,
     CreateSessionResponse,
     DriverLocationResponse,
+    UpdateDriverLocationRequest,
     EndSessionRequest,
     EndSessionResponse,
+    CreateLinkResponse,
+    PassengerLocation,
+    PassengerLocationsResponse,
 )
 
 
@@ -198,6 +202,7 @@ def share_passenger_location(
 
 
 def get_driver_location(session_id: UUID, actor_context: AuthContext) -> DriverLocationResponse:
+    print("session_service.py 에서 def get_driver_location 실행")
     """
     DB에서 해당 세션의 운전자 최신 위치 정보를 하나 가져옵니다.
     [학습 포인트] order_by와 desc()를 이용한 최신 데이터 정렬 및 limit(1) 처리
@@ -210,6 +215,7 @@ def get_driver_location(session_id: UUID, actor_context: AuthContext) -> DriverL
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
 
         # 권한 확인 (운전자 정보 대조 혹은 링크 토큰 대조)
+        
         if not actor_context.driver_token and not actor_context.link_token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing actor auth context")
 
@@ -260,6 +266,50 @@ def get_driver_location(session_id: UUID, actor_context: AuthContext) -> DriverL
                 accuracy_m=point_obj.accuracy_m if point_obj.accuracy_m is not None else None,
                 recorded_at=point_obj.recorded_at,
             ),
+        )
+
+
+def update_driver_location(
+    session_id: UUID,
+    req: UpdateDriverLocationRequest,
+    driver_token: Optional[str],
+) -> ShareLocationResponse:
+    """
+    운전자의 현재 위치를 LocationPoint 테이블에 기록합니다.
+    """
+    if not driver_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authorization token is required")
+
+    now = _now()
+    recorded_at = req.recorded_at or now
+
+    with get_db_session() as db:
+        session_obj = db.get(PickupSession, session_id)
+        if not session_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        if session_obj.driver_token != driver_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
+
+        if session_obj.status != "active" or now > session_obj.expires_at:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="session not active")
+
+        # 위치 정보 기록
+        point_obj = LocationPoint(
+            session_id=session_obj.session_id,
+            actor_type="driver",
+            latitude=req.latitude,
+            longitude=req.longitude,
+            accuracy_m=req.accuracy_m,
+            recorded_at=recorded_at,
+        )
+        db.add(point_obj)
+        db.flush()
+
+        return ShareLocationResponse(
+            point_id=str(point_obj.point_id),
+            session_id=session_obj.session_id,
+            saved_at=point_obj.recorded_at,
         )
 
 
@@ -346,6 +396,123 @@ def check_link_status(link_token: str) -> LinkStatusResponse:
             session_status="ended" if session_expired else session_obj.status,
             session_expires_at=session_obj.expires_at,
             link_expires_at=link_obj.expires_at,
-            can_access=not link_expired and not session_expired,
+        )
+
+
+def create_session_link(session_id: UUID, driver_token: Optional[str]) -> CreateLinkResponse:
+    """
+    운전자가 세션에 대해 새로운 추가 공유 링크를 생성합니다.
+    """
+    if not driver_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authorization token is required")
+
+    now = _now()
+    with get_db_session() as db:
+        session_obj = db.get(PickupSession, session_id)
+        if not session_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        if session_obj.driver_token != driver_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
+
+        link_obj = SessionLink(
+            session_id=session_id,
+            access_token=str(uuid4()),
+            created_at=now,
+            access_count=0,
+            expires_at=session_obj.expires_at,
+            is_revoked=False,
+        )
+        db.add(link_obj)
+        db.flush()
+
+        return CreateLinkResponse(
+            link_token=link_obj.access_token,
+            link_url=f"/api/v1/links/{link_obj.access_token}",
+            expires_at=link_obj.expires_at,
+        )
+
+
+def revoke_all_session_links(session_id: UUID, driver_token: Optional[str]) -> dict:
+    """
+    세션의 모든 링크를 무효화(삭제)합니다.
+    """
+    if not driver_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authorization token is required")
+
+    with get_db_session() as db:
+        session_obj = db.get(PickupSession, session_id)
+        if not session_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        if session_obj.driver_token != driver_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
+
+        links = db.scalars(select(SessionLink).where(SessionLink.session_id == session_id)).all()
+        count = 0
+        for link in links:
+            if not link.is_revoked:
+                link.is_revoked = True
+                count += 1
+        return {"revoked_count": count}
+
+
+def get_passenger_locations(session_id: UUID, driver_token: Optional[str]) -> PassengerLocationsResponse:
+    """
+    운전자가 세션 내 모든 탑승자의 최신 위치 목록을 조회합니다.
+    """
+    if not driver_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authorization token is required")
+
+    with get_db_session() as db:
+        session_obj = db.get(PickupSession, session_id)
+        if not session_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        if session_obj.driver_token != driver_token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid driver token")
+
+        from sqlalchemy import func
+        subq = (
+            select(
+                LocationPoint.link_id,
+                func.max(LocationPoint.recorded_at).label("max_recorded")
+            )
+            .where(
+                and_(
+                    LocationPoint.session_id == session_id,
+                    LocationPoint.actor_type == "passenger"
+                )
+            )
+            .group_by(LocationPoint.link_id)
+            .subquery()
+        )
+
+        query = (
+            select(LocationPoint, SessionLink.access_token)
+            .join(subq, and_(
+                LocationPoint.link_id == subq.c.link_id,
+                LocationPoint.recorded_at == subq.c.max_recorded
+            ))
+            .join(SessionLink, LocationPoint.link_id == SessionLink.link_id)
+        )
+
+        results = db.execute(query).all()
+        
+        passengers = []
+        for row in results:
+            lp, access_token = row
+            passengers.append(PassengerLocation(
+                link_token=access_token,
+                latitude=float(lp.latitude),
+                longitude=float(lp.longitude),
+                accuracy_m=lp.accuracy_m,
+                recorded_at=lp.recorded_at,
+                saved_at=lp.recorded_at,
+            ))
+
+        return PassengerLocationsResponse(
+            session_id=session_id,
+            passengers=passengers
         )
 

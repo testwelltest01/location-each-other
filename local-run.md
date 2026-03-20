@@ -9,7 +9,7 @@
 ## 1) 필수 환경변수
 
 - `DATABASE_URL` (필수)
-  - 기본값: `postgresql+psycopg://postgres:postgres@localhost:5432/pickup_mvp`
+  - 기본값: `postgresql+psycopg://postgres:postgres@localhost:5433/pickup_mvp`
   - Compose 실행 시: `postgresql+psycopg://postgres:postgres@db:5432/pickup_mvp`
 
 **[공부 포인트]** 앱 실행 시 `app/main.py`의 시작 이벤트에서 `init_db()`가 호출되어 DB 스키마를 자동 생성합니다. 이를 통해 테이블을 수동으로 만들 필요 없이 코드가 DB 구조를 결정하게 됩니다.
@@ -24,7 +24,7 @@ docker compose up --build
 ```
 
 - API: `http://127.0.0.1:8000`
-- DB: `postgresql://postgres:postgres@127.0.0.1:5432/pickup_mvp`
+- DB: `postgresql://postgres:postgres@127.0.0.1:5433/pickup_mvp`
 
 **[팁]** 중지하고 싶을 때는 `Ctrl + C`를 누르거나 다른 터미널에서 `docker compose down`을 입력하세요.
 
@@ -33,7 +33,7 @@ docker compose up --build
 - PostgreSQL이 로컬에 이미 설치되어 있다면 `DATABASE_URL`만 맞춰서 직접 실행할 수 있습니다.
 
 ```bash
-$env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/pickup_mvp"
+$env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5433/pickup_mvp"
 python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```

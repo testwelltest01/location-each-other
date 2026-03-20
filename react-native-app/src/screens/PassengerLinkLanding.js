@@ -1,9 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Button, StyleSheet, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Button,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
 import requestJson from "../api/httpClient";
 
 export default function PassengerLinkLanding({ route, navigation }) {
-  const { linkToken: initialLinkToken, sessionStatus, linkActive } = route.params || {};
+  console.log("PassengerLinkLanding.js 실행함");
+
+  const {
+    linkToken: initialLinkToken,
+    sessionStatus,
+    linkActive,
+  } = route.params || {};
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -20,6 +32,8 @@ export default function PassengerLinkLanding({ route, navigation }) {
     let alive = true;
 
     const checkLink = async () => {
+      console.log("PassengerLinkLanding.js에서 const checkLink 실행함");
+
       if (!linkToken) {
         setError("링크 토큰이 없습니다.");
         setLoading(false);
@@ -32,7 +46,7 @@ export default function PassengerLinkLanding({ route, navigation }) {
           method: "GET",
           path: `/api/v1/links/${linkToken}`,
         });
-        
+
         if (!alive) return;
         setLinkInfo(result);
 
@@ -84,12 +98,16 @@ export default function PassengerLinkLanding({ route, navigation }) {
 
       <View style={styles.row}>
         <Text style={styles.label}>현재 서버 상태</Text>
-        <Text style={styles.value}>{linkInfo?.session_status || sessionStatus || "확인 중..."}</Text>
+        <Text style={styles.value}>
+          {linkInfo?.session_status || sessionStatus || "확인 중..."}
+        </Text>
       </View>
 
       <View style={styles.row}>
         <Text style={styles.label}>링크 활성화 여부</Text>
-        <Text style={styles.value}>{isActive ? "활성 (접속 가능)" : "비활성 (만료/종료)"}</Text>
+        <Text style={styles.value}>
+          {isActive ? "활성 (접속 가능)" : "비활성 (만료/종료)"}
+        </Text>
       </View>
 
       {/* 로딩 중일 때 보여줄 UI */}
@@ -112,7 +130,8 @@ export default function PassengerLinkLanding({ route, navigation }) {
             onPress={() =>
               navigation.navigate("PassengerShare", {
                 linkToken,
-                sessionStatus: linkInfo?.session_status || sessionStatus || "active",
+                sessionStatus:
+                  linkInfo?.session_status || sessionStatus || "active",
               })
             }
           />

@@ -60,3 +60,39 @@ class DriverLocationResponse(BaseModel):
     session_id: UUID
     session_status: str
     location: Optional[LocationDTO] = None  # 운전자의 현재 위치 정보 (없을 수 있음)
+
+
+class UpdateDriverLocationRequest(BaseModel):
+    """
+    운전자가 자신의 위치 정보를 업데이트할 때 보내는 요청 데이터 스키마입니다.
+    """
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    accuracy_m: Optional[float] = Field(default=None, ge=0)
+    recorded_at: Optional[datetime] = None
+
+class CreateLinkResponse(BaseModel):
+    """
+    새로운 탑승자 링크 생성 시 반환되는 데이터 스키마입니다.
+    """
+    link_token: str
+    link_url: str
+    expires_at: datetime
+
+class PassengerLocation(BaseModel):
+    """
+    개별 탑승자의 최신 위치 정보 스키마입니다.
+    """
+    link_token: str
+    latitude: float
+    longitude: float
+    accuracy_m: Optional[float] = None
+    recorded_at: datetime
+    saved_at: datetime
+
+class PassengerLocationsResponse(BaseModel):
+    """
+    세션 내 모든 탑승자의 위치 정보를 반환하는 스키마입니다.
+    """
+    session_id: UUID
+    passengers: list[PassengerLocation]

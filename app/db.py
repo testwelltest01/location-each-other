@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Generator
@@ -17,7 +17,7 @@ class Base(DeclarativeBase):
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg://postgres:postgres@localhost:5432/pickup_mvp",
+    "postgresql+psycopg://postgres:postgres@localhost:5433/pickup_mvp",
 )
 DB_CONNECT_TIMEOUT_SECONDS = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))
 

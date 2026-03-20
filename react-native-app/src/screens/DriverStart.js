@@ -1,5 +1,11 @@
 import React, { useState } from "react";
-import { View, Text, Button, StyleSheet, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Button,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
 // [학습 포인트 1] 공통 API 요청 함수 임포트
 import requestJson, {
   DEFAULT_DRIVER_TOKEN,
@@ -7,6 +13,8 @@ import requestJson, {
 } from "../api/httpClient";
 
 export default function DriverStart({ navigation }) {
+  console.log("DriverStart.js 에서 function DriverStart 실행함");
+
   // [학습 포인트 2] 비동기 통신을 위한 상태 정의
   // isLoading: 현재 서버와 통신 중인지 여부 (UI에서 로딩 바를 보여주기 위함)
   // message: 사용자에게 보여줄 안내 메시지나 에러 메시지
@@ -20,6 +28,8 @@ export default function DriverStart({ navigation }) {
    * 서버에 POST 요청을 보내 새로운 세션을 만듭니다.
    */
   const createSession = async () => {
+    console.log("DriverStart.js 에서 const createSession 실행함");
+
     setIsLoading(true); // 통신 시작 시 로딩 상태 활성화
     setMessage(""); // 이전 메시지 초기화
 
@@ -91,7 +101,9 @@ export default function DriverStart({ navigation }) {
 
       <View style={styles.section}>
         <Text style={styles.label}>상태 안내</Text>
-        <Text style={styles.value}>{message || "세션 시작 버튼을 눌러주세요."}</Text>
+        <Text style={styles.value}>
+          {message || "세션 시작 버튼을 눌러주세요."}
+        </Text>
       </View>
 
       <View style={styles.row}>
@@ -106,7 +118,9 @@ export default function DriverStart({ navigation }) {
       {/* [학습 포인트 6] ActivityIndicator (로딩 스피너)
           사용자에게 '작업 중'임을 시각적으로 알려주는 핵심 UI 요소입니다.
       */}
-      {isLoading ? <ActivityIndicator style={styles.row} size="small" color="#0000ff" /> : null}
+      {isLoading ? (
+        <ActivityIndicator style={styles.row} size="small" color="#0000ff" />
+      ) : null}
     </View>
   );
 }

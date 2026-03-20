@@ -1,11 +1,17 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, Button, StyleSheet } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, Button, StyleSheet, ScrollView } from "react-native";
 import * as Location from "expo-location";
 import requestJson from "../api/httpClient";
 import NaverDynamicMap from "../components/NaverDynamicMap";
-import { MAP_DEFAULT_CENTER, MAP_DEFAULT_ZOOM, NAVER_MAP_CLIENT_ID } from "../config/mapConfig";
+import {
+  MAP_DEFAULT_CENTER,
+  MAP_DEFAULT_ZOOM,
+  NAVER_MAP_CLIENT_ID,
+} from "../config/mapConfig";
 
 export default function PassengerShare({ route }) {
+  console.log("PassengerShare.js 실행함");
+
   const { linkToken, sessionStatus } = route.params || {};
 
   const safeLinkToken = String(linkToken || "").trim();
@@ -24,10 +30,18 @@ export default function PassengerShare({ route }) {
 
   const timerRef = useRef(null);
 
-  const mapLatitude = toSafeCoord(currentLocation?.latitude, MAP_DEFAULT_CENTER.latitude);
-  const mapLongitude = toSafeCoord(currentLocation?.longitude, MAP_DEFAULT_CENTER.longitude);
+  const mapLatitude = toSafeCoord(
+    currentLocation?.latitude,
+    MAP_DEFAULT_CENTER.latitude,
+  );
+  const mapLongitude = toSafeCoord(
+    currentLocation?.longitude,
+    MAP_DEFAULT_CENTER.longitude,
+  );
 
   const stopSharing = useCallback(() => {
+    console.log("PassengerShare.js 에서 const stopSharing실행함");
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -35,6 +49,8 @@ export default function PassengerShare({ route }) {
   }, []);
 
   const ensurePermission = useCallback(async () => {
+    console.log("PassengerShare.js 에서 const ensurePermission 실행함");
+
     if (permissionGranted) return true;
 
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -48,6 +64,7 @@ export default function PassengerShare({ route }) {
   }, [permissionGranted]);
 
   const getCurrentPosition = useCallback(async () => {
+    console.log("PassengerShare.js 에서 const getCurrentPosition 실행함");
     const hasPermission = await ensurePermission();
     if (!hasPermission) return null;
 
@@ -68,6 +85,7 @@ export default function PassengerShare({ route }) {
 
   const sendLocation = useCallback(
     async (position) => {
+      console.log("PassengerShare.js 에서 const sendLocation 실행함");
       const latest = position || (await getCurrentPosition());
       if (!latest) {
         throw new Error("위치 좌표를 가져올 수 없습니다.");
@@ -85,14 +103,17 @@ export default function PassengerShare({ route }) {
       });
 
       setPointId(result.point_id || "");
-      setLastSharedAt(`${new Date().toLocaleTimeString()} (저장: ${result.saved_at || "n/a"})`);
+      setLastSharedAt(
+        `${new Date().toLocaleTimeString()} (저장: ${result.saved_at || "n/a"})`,
+      );
       setError("");
       return result;
     },
-    [getCurrentPosition, safeLinkToken]
+    [getCurrentPosition, safeLinkToken],
   );
 
   const toggleShare = async () => {
+    console.log("PassengerShare.js 에서 const toggleShare 실행함");
     if (!safeLinkToken) {
       setError("링크 토큰이 없습니다.");
       return;
@@ -128,12 +149,54 @@ export default function PassengerShare({ route }) {
   };
 
   useEffect(() => {
-    ensurePermission();
-    return () => stopSharing();
-  }, [ensurePermission, stopSharing]);
+    let internalTimer = null;
+
+    const startAutoShare = async () => {
+      if (!safeLinkToken || sharing) return;
+
+      const hasPermission = await ensurePermission();
+      if (!hasPermission) return;
+
+      setSharing(true);
+      setError("");
+      try {
+        await sendLocation();
+      } catch (e) {
+        setError(e.message || "초기 공유 실패");
+        setSharing(false);
+        return;
+      }
+
+      internalTimer = setInterval(async () => {
+        try {
+          await sendLocation();
+        } catch (e) {
+          if (e.message.includes("410") || e.message.includes("403") || e.message.includes("expired") || e.message.includes("revoked")) {
+            setError("이 세션(또는 링크)은 종료되었습니다.");
+            setSharing(false);
+            if (internalTimer) clearInterval(internalTimer);
+          } else {
+            setError(e.message || "자동 공유 실패");
+          }
+        }
+      }, 5000);
+      timerRef.current = internalTimer;
+    };
+
+    startAutoShare();
+
+    return () => {
+      if (internalTimer) clearInterval(internalTimer);
+      stopSharing();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeLinkToken]);
 
   return (
-    <View style={styles.container}>
+    <ScrollView 
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+    >
       <Text style={styles.title}>실시간 위치 공유</Text>
 
       <View style={styles.row}>
@@ -187,16 +250,19 @@ export default function PassengerShare({ route }) {
       <View style={styles.row}>
         <Text style={styles.note}>5초 간격으로 위치를 전송합니다.</Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    gap: 12,
     backgroundColor: "#fff",
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+    gap: 8,
   },
   title: {
     fontSize: 22,

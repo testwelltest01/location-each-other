@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 if (-not $env:DATABASE_URL) {
-  $env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/pickup_mvp"
+  $env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5433/pickup_mvp"
 }
 
 Write-Host "Using Python: $(Get-Command python | Select-Object -ExpandProperty Source)"

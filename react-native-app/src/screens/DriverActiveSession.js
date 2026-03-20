@@ -1,11 +1,26 @@
-import React, { useState } from "react";
-import { View, Text, Button, StyleSheet, ActivityIndicator } from "react-native";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import {
+  View,
+  Text,
+  Button,
+  StyleSheet,
+  ActivityIndicator,
+  ScrollView,
+  TouchableOpacity,
+} from "react-native";
+import * as Location from "expo-location";
 import requestJson, { authHeader } from "../api/httpClient";
 // [학습 포인트 1] 지도 컴포넌트 및 설정 임포트
 import NaverDynamicMap from "../components/NaverDynamicMap";
-import { MAP_DEFAULT_ZOOM, MAP_DEFAULT_CENTER, NAVER_MAP_CLIENT_ID } from "../config/mapConfig";
+import {
+  MAP_DEFAULT_ZOOM,
+  MAP_DEFAULT_CENTER,
+  NAVER_MAP_CLIENT_ID,
+} from "../config/mapConfig";
 
 export default function DriverActiveSession({ route, navigation }) {
+  console.log("DriverActiveSession.js 실행함");
+
   const {
     sessionId,
     linkToken,
@@ -13,21 +28,179 @@ export default function DriverActiveSession({ route, navigation }) {
     sessionExpiresAt,
     driverToken,
   } = route.params || {};
+  console.log(route.params);
 
-  const [sessionStatus, setSessionStatus] = useState(initialSessionStatus || "active");
+  const [sessionStatus, setSessionStatus] = useState(
+    initialSessionStatus || "active",
+  );
   const [driverLocation, setDriverLocation] = useState(null);
+  const [sharing, setSharing] = useState(false);
+  const [passengerLocations, setPassengerLocations] = useState([]);
+  const [linkTokens, setLinkTokens] = useState(linkToken ? [linkToken] : []);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const timerRef = useRef(null);
+  const mapReadyRef = useRef(false);
+
+  const stopSharing = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => stopSharing();
+  }, [stopSharing]);
+
+  // 화면 진입 시 자동 공유 시작
+  useEffect(() => {
+    if (sessionId && !sharing) {
+      toggleShare();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   /**
    * [학습 포인트 2] 지도 좌표 바인딩
    * 서버에서 받은 위치가 있으면 그 좌표를 사용하고, 없으면 기본 중심점(서울시청)을 보여줍니다.
    */
   const mapLatitude = driverLocation?.latitude ?? MAP_DEFAULT_CENTER.latitude;
-  const mapLongitude = driverLocation?.longitude ?? MAP_DEFAULT_CENTER.longitude;
+  const mapLongitude =
+    driverLocation?.longitude ?? MAP_DEFAULT_CENTER.longitude;
+
+  const ensurePermission = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      setError("위치 권한이 필요합니다.");
+      return false;
+    }
+    return true;
+  };
+
+  const sendCurrentLocation = async () => {
+    if (!sessionId) return;
+
+    try {
+      // 실제 기기의 현재 위치 가져오기
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      const { latitude, longitude, accuracy } = position.coords;
+
+      // 상단 상태(지도)를 즉시 업데이트하여 반응성을 높임
+      setDriverLocation({ latitude, longitude, accuracy });
+
+      await requestJson({
+        method: "POST",
+        path: `/api/v1/sessions/${sessionId}/driver-location`,
+        headers: {
+          ...authHeader(driverToken),
+          "Content-Type": "application/json",
+        },
+        body: {
+          latitude: latitude,
+          longitude: longitude,
+          accuracy_m: accuracy || 0,
+        },
+      });
+      console.log("위치 자동 전송 성공: ", { latitude, longitude });
+    } catch (e) {
+      console.log("위치 전송 중 에러: ", e.message);
+      setError("실시간 위치 전송 중 오류 발생");
+    }
+  };
+
+  const toggleShare = async () => {
+    console.log("DriverActiveSession.js에서 const toggleShare 실행함");
+    if (!sessionId) return;
+
+    if (sharing) {
+      stopSharing();
+      setSharing(false);
+      setMessage("위치 공유가 중지되었습니다.");
+      setTimeout(() => setMessage(""), 2000);
+      return;
+    }
+
+    const hasPermission = await ensurePermission();
+    if (!hasPermission) return;
+
+    setSharing(true);
+    setError("");
+    setMessage("실시간 위치 공유를 시작합니다.");
+
+    // 즉시 한 번 전송
+    await sendCurrentLocation();
+
+    // 5초 주기로 전송 및 탑승자 위치 조회
+    timerRef.current = setInterval(async () => {
+      await sendCurrentLocation();
+      await fetchPassengerLocations();
+    }, 5000);
+  };
+
+  const createNewLink = async () => {
+    if (!sessionId) return;
+    setIsLoading(true);
+    try {
+      const result = await requestJson({
+        method: "POST",
+        path: `/api/v1/sessions/${sessionId}/links`,
+        headers: authHeader(driverToken),
+      });
+      setLinkTokens((prev) => [...prev, result.link_token]);
+      setMessage("새로운 공유 링크가 생성되었습니다.");
+      setTimeout(() => setMessage(""), 3000);
+    } catch (e) {
+      setError("링크 생성 실패: " + e.message);
+    } finally {
+      setIsLoading(true);
+      setIsLoading(false);
+    }
+  };
+
+  const revokeAllLinks = async () => {
+    if (!sessionId) return;
+    setIsLoading(true);
+    try {
+      await requestJson({
+        method: "DELETE",
+        path: `/api/v1/sessions/${sessionId}/links`,
+        headers: authHeader(driverToken),
+      });
+      setLinkTokens([]);
+      setPassengerLocations([]);
+      setMessage("모든 링크가 무효화되었습니다.");
+      setTimeout(() => setMessage(""), 3000);
+    } catch (e) {
+      setError("링크 무효화 실패: " + e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchPassengerLocations = async () => {
+    if (!sessionId) return;
+    try {
+      const result = await requestJson({
+        method: "GET",
+        path: `/api/v1/sessions/${sessionId}/passengers`,
+        headers: authHeader(driverToken),
+      });
+      setPassengerLocations(result.passengers || []);
+    } catch (e) {
+      console.log("탑승자 위치 조회 실패:", e.message);
+    }
+  };
 
   const fetchDriverLocation = async () => {
+    console.log("DriverActiveSession.js에서 const fetchDriverLocation 실행함");
+
     if (!sessionId) {
+      console.log("세션 ID가 없습니다.");
       setError("세션 ID가 없습니다.");
       return;
     }
@@ -39,8 +212,8 @@ export default function DriverActiveSession({ route, navigation }) {
         path: `/api/v1/sessions/${sessionId}/driver-location`,
         headers: authHeader(driverToken),
       });
-      // 성공 시 위치 정보를 업데이트하면 지도가 자동으로 리렌더링되며 마커가 이동합니다.
       setDriverLocation(result.location || null);
+      console.log("result: ", result);
     } catch (e) {
       setError(e.message || "위치 정보 조회 실패");
     } finally {
@@ -48,7 +221,14 @@ export default function DriverActiveSession({ route, navigation }) {
     }
   };
 
+  const copyToClipboard = async (token) => {
+    // 실제 환경에서는 웹 사이트 도메인을 포함해야 함 (예: https://myapp.com/share/)
+    const fullUrl = `https://your-app-domain.com/share/${token}`;
+    alert(`아래 주소를 길게 눌러 복사해 주세요:\n\n${fullUrl}`);
+  };
+
   const endSession = async () => {
+    console.log("DriverActiveSession.js에서 const endSession 실행함");
     if (!sessionId) return;
     setIsLoading(true);
     setError("");
@@ -56,7 +236,10 @@ export default function DriverActiveSession({ route, navigation }) {
       const result = await requestJson({
         method: "POST",
         path: `/api/v1/sessions/${sessionId}/end`,
-        headers: { ...authHeader(driverToken), "Content-Type": "application/json" },
+        headers: {
+          ...authHeader(driverToken),
+          "Content-Type": "application/json",
+        },
         body: { reason: "driver_end" },
       });
 
@@ -75,7 +258,10 @@ export default function DriverActiveSession({ route, navigation }) {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+    >
       <Text style={styles.title}>세션 관리 (운전자)</Text>
 
       <View style={styles.row}>
@@ -103,22 +289,46 @@ export default function DriverActiveSession({ route, navigation }) {
         latitude={mapLatitude}
         longitude={mapLongitude}
         zoom={MAP_DEFAULT_ZOOM}
-        markerTitle="탑승자 위치"
-        markerText={driverLocation ? "탑승자의 현재 위치입니다" : "위치를 불러오는 중..."}
+        markerTitle="내 위치"
+        passengers={passengerLocations}
       />
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      
+      {message ? <Text style={styles.messageText}>{message}</Text> : null}
+
       <View style={styles.row}>
         {isLoading ? <ActivityIndicator size="small" color="#000" /> : null}
       </View>
 
+      <View style={styles.linkCard}>
+        <Text style={styles.cardTitle}>탑승자 링크 관리 ({linkTokens.length})</Text>
+        <View style={styles.buttonRow}>
+            <Button title="새 링크 생성" onPress={createNewLink} color="#4CD964" />
+            <Button title="모든 링크 무효화" onPress={revokeAllLinks} color="#FF3B30" />
+        </View>
+        <View style={styles.linkList}>
+            {linkTokens.map((t, idx) => (
+                <View key={t} style={styles.linkRow}>
+                    <Text selectable={true} style={styles.linkItem}>{idx + 1}. {t.substring(0, 15)}...</Text>
+                    <TouchableOpacity style={styles.copyBtn} onPress={() => copyToClipboard(t)}>
+                        <Text style={styles.copyBtnText}>확인</Text>
+                    </TouchableOpacity>
+                </View>
+            ))}
+            {linkTokens.length === 0 && <Text style={styles.emptyLink}>생성된 링크가 없습니다.</Text>}
+        </View>
+      </View>
+
       <View style={styles.row}>
         <Button
-          title="위치 정보 불러오기"
-          onPress={fetchDriverLocation}
+          title={sharing ? "위치 공유 중지" : "내 실시간 위치 공유 시작"}
+          onPress={toggleShare}
+          color={sharing ? "#d9534f" : "#007AFF"}
           disabled={!sessionId || isLoading}
         />
+        {sharing && (
+          <Text style={styles.note}>5초 간격으로 서버에 위치를 전송 및 탑승자 확인 중입니다.</Text>
+        )}
       </View>
 
       <View style={styles.row}>
@@ -148,16 +358,19 @@ export default function DriverActiveSession({ route, navigation }) {
         <Text style={styles.label}>세션 만료 시간</Text>
         <Text style={styles.value}>{sessionExpiresAt || "-"}</Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    gap: 10,
     backgroundColor: "#fff",
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+    gap: 8,
   },
   title: {
     fontSize: 22,
@@ -180,5 +393,65 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#cc0000",
     marginTop: 6,
+    textAlign: "center",
+  },
+  messageText: {
+    color: "#008800",
+    marginTop: 6,
+    textAlign: "center",
+    fontWeight: "bold",
+  },
+  note: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 4,
+    fontStyle: "italic",
+  },
+  linkCard: {
+    backgroundColor: "#f9f9f9",
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#eee",
+    marginVertical: 10,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 8,
+    color: "#444",
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  linkList: {
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+    paddingTop: 8,
+  },
+  linkItem: {
+    fontSize: 13,
+    color: "#666",
+    fontFamily: "monospace",
+  },
+  linkRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  copyBtn: {
+    backgroundColor: "#eee",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  copyBtnText: {
+    fontSize: 12,
+    color: "#007AFF",
+    fontWeight: "700",
   },
 });

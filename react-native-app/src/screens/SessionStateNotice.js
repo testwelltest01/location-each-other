@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Button, StyleSheet, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Button,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
 import requestJson from "../api/httpClient";
 
 export default function SessionStateNotice({ route, navigation }) {
+  console.log("SessionStateNotice.js 실행함");
+
   // [학습 포인트 1] 공통 안내 화면의 파라미터 수신
   // 세션이 왜 끝났는지(reason), 현재 서버 상태는 어떠한지 등을 파라미터로 받습니다.
   const { reason, canAccess, message, linkToken } = route.params || {};
-  
+
   const [serverStatus, setServerStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -16,6 +24,8 @@ export default function SessionStateNotice({ route, navigation }) {
    * 화면을 보고 있는 도중에 세션이 만료되었을 수도 있으므로 최신 상태를 불러옵니다.
    */
   const fetchStatus = async () => {
+    console.log("SessionStateNotice.js 에서 const fetchStatus실행함");
+
     if (!linkToken) {
       return;
     }
@@ -48,7 +58,9 @@ export default function SessionStateNotice({ route, navigation }) {
 
       <View style={styles.row}>
         <Text style={styles.label}>접속 가능 여부</Text>
-        <Text style={styles.value}>{currentCanAccess ? "접속 가능" : "접속 불가 (만료/종료)"}</Text>
+        <Text style={styles.value}>
+          {currentCanAccess ? "접속 가능" : "접속 불가 (만료/종료)"}
+        </Text>
       </View>
 
       <View style={styles.row}>
@@ -60,14 +72,14 @@ export default function SessionStateNotice({ route, navigation }) {
 
       <View style={styles.row}>
         <Text style={styles.label}>세션 상태</Text>
-        <Text style={styles.value}>
-          {serverStatus?.session_status || "-"}
-        </Text>
+        <Text style={styles.value}>{serverStatus?.session_status || "-"}</Text>
       </View>
 
       <View style={styles.row}>
         <Text style={styles.label}>세션 만료 시간</Text>
-        <Text style={styles.value}>{serverStatus?.session_expires_at || "-"}</Text>
+        <Text style={styles.value}>
+          {serverStatus?.session_expires_at || "-"}
+        </Text>
       </View>
 
       <View style={styles.row}>
@@ -84,7 +96,11 @@ export default function SessionStateNotice({ route, navigation }) {
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <View style={styles.row}>
-        <Button title="정보 새로고침" onPress={fetchStatus} disabled={loading || !linkToken} />
+        <Button
+          title="정보 새로고침"
+          onPress={fetchStatus}
+          disabled={loading || !linkToken}
+        />
       </View>
 
       <View style={styles.row}>
