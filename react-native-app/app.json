@@ -5,21 +5,12 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
     "ios": {
-      "bundleIdentifier": "com.pickup.session.mobile",
-      "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app needs location permission to show and share your position."
-      }
+      "bundleIdentifier": "com.pickup.session.mobile"
     },
     "android": {
-      "package": "com.pickup.session.mobile",
-      "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
-      ]
-    },
-    "assetBundlePatterns": [
-      "**/*"
-    ]
+      "package": "com.pickup.session.mobile"
+    }
   }
 }
