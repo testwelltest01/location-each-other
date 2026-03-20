@@ -243,3 +243,39 @@ MVP 이후 확장 가능한 방향은 다음과 같다.
 
 이 프로젝트의 핵심은  
 **“운전자와 탑승자를 짧은 시간 동안 연결하는 실시간 위치추적 세션을 만드는 것”** 이다.
+
+## Local Run Guide
+
+### 실행 방법 (개발용)
+
+1. docker-compose 사용(권장)
+
+```bash
+docker compose up --build
+```
+
+2. health check
+
+```bash
+curl http://127.0.0.1:8000/
+```
+
+3. 기본 환경변수
+
+- `DATABASE_URL` (권장 기본값): `postgresql+psycopg://postgres:postgres@localhost:5432/pickup_mvp`
+- Docker 실행 시: `postgresql+psycopg://postgres:postgres@db:5432/pickup_mvp`
+
+4. 자세한 실행/요청 예시는 `local-run.md` 참조
+
+```bash
+[local-run.md](local-run.md)
+```
+
+### 최소 테스트 요청
+
+- `POST /api/v1/sessions` : 운전자 세션 생성
+- `GET /api/v1/links/{link_token}` : 링크 접속
+- `POST /api/v1/links/{link_token}/locations` : 탑승자 위치 공유
+- `GET /api/v1/sessions/{session_id}/driver-location` : 운전자 위치 조회
+- `POST /api/v1/sessions/{session_id}/end` : 세션 종료
+- `GET /api/v1/links/{link_token}/status` : 링크 상태 확인
