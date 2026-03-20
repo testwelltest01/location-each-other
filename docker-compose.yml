@@ -4,9 +4,9 @@
 services:
   # 1. 데이터베이스(PostgreSQL) 서비스 설정
   db:
-    image: postgres:16  # 공식 PostgreSQL 16 버전 이미지를 사용합니다.
+    image: postgres:16 # 공식 PostgreSQL 16 버전 이미지를 사용합니다.
     container_name: pickup-db
-    restart: unless-stopped  # 에러로 꺼졌을 때 다시 실행해주지만, 수동으로 껐을 때는 재시작하지 않습니다.
+    restart: unless-stopped # 에러로 꺼졌을 때 다시 실행해주지만, 수동으로 껐을 때는 재시작하지 않습니다.
     environment:
       # [공부 포인트 2] 환경 변수
       # 컨테이너 안에서 사용할 초기 DB 설정값들입니다.
@@ -25,7 +25,7 @@ services:
   api:
     image: python:3.12-slim # 경량화된 파이썬 3.12 이미지를 사용합니다.
     container_name: pickup-api
-    working_dir: /app  # 컨테이너 안의 기본 작업 경로입니다.
+    working_dir: /app # 컨테이너 안의 기본 작업 경로입니다.
     volumes:
       # [공부 포인트 4] 바인드 마운트
       # 현재 내 폴더(.)를 컨테이너 안의 /app 폴더와 실시간으로 동기화합니다.
@@ -40,7 +40,7 @@ services:
       # [공부 포인트 6] 네트워크 별칭
       # docker-compose 안에서는 IP 대신 서비스 이름인 'db'를 호스트명으로 쓸 수 있습니다.
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/pickup_mvp
-    command: >
+    command:
       # [공부 포인트 7] 컨테이너 실행 명령어
       # 1) 필요한 패키지를 설치하고, 2) 서버를 실행합니다.
       # --reload 옵션으로 코드 수정 시 서버가 자동으로 재시작됩니다.

@@ -244,6 +244,11 @@ MVP 이후 확장 가능한 방향은 다음과 같다.
 이 프로젝트의 핵심은  
 **“운전자와 탑승자를 짧은 시간 동안 연결하는 실시간 위치추적 세션을 만드는 것”** 이다.
 
+## 13. 모바일 앱 실행 가이드 (Expo)
+
+- React Native 화면 뼈대 앱은 `react-native-app` 디렉터리에 있으며 Expo로 실행할 수 있습니다.
+- 실행 방법은 [mobile-run.md](mobile-run.md) 참고
+
 ## Local Run Guide
 
 ### 실행 방법 (개발용)
@@ -279,3 +284,7 @@ curl http://127.0.0.1:8000/
 - `GET /api/v1/sessions/{session_id}/driver-location` : 운전자 위치 조회
 - `POST /api/v1/sessions/{session_id}/end` : 세션 종료
 - `GET /api/v1/links/{link_token}/status` : 링크 상태 확인
+
+### 모바일 앱 실행 테스트
+
+- 화면 이동 위주 확인: [mobile-run.md](mobile-run.md)

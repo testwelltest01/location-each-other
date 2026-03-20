@@ -34,9 +34,34 @@ docker compose up --build
 
 ```bash
 $env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/pickup_mvp"
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+### C. Python 인터프리터 정합성 점검 (sqlalchemy import 에러 대응)
+
+`uvicorn --reload` 재시작 시 자식 프로세스가 다른 Python을 쓰면 `ModuleNotFoundError`가 납니다. 실행 전 아래 순서를 권장합니다.
+
+```bash
+where python
+python --version
+python -m pip show SQLAlchemy
+```
+
+동일 터미널에서 이어서 아래처럼 실행하면 현재 프로세스와 동일 환경에서 서버가 뜹니다.
+
+```bash
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+또는 스크립트로 실행:
+
+```bash
+./backend-start.ps1
+```
+
+`SQLAlchemy`가 보이지 않으면 `pip` 설치가 다른 Python에 들어간 것이므로, IDE/터미널의 Python 경로를 위 명령으로 통일해 주세요.
 
 ## 3) 서버 실행 확인 (Health Check)
 
@@ -99,3 +124,16 @@ curl http://127.0.0.1:8000/api/v1/links/{link_token}/status
 - [ ] 세션 생성 시 응답에 `session_id`, `link_token` 등의 필수 값이 포함되는가?
 - [ ] 위치 업로드 시 에러 없이 성공 응답이 오는가?
 - [ ] 세션 종료 후 링크 상태를 조회했을 때 `can_access=false`가 되는가?
+
+## 6) 모바일 앱 실행 (Expo)
+
+- 모바일 화면 뼈대는 `react-native-app`에서 `npm install` 후 실행 가능합니다.
+- 기본 실행:
+  - `cd react-native-app`
+  - `npm run start`
+  - QR 코드로 Expo Go 실행
+- 에뮬레이터 실행(선택):
+  - `npm run android`
+  - `npm run ios` (macOS + Xcode)
+
+상세 가이드는 [mobile-run.md](mobile-run.md) 참조.
