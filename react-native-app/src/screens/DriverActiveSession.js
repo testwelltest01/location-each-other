@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { View, Text, Button, StyleSheet, ActivityIndicator } from "react-native";
 import requestJson, { authHeader } from "../api/httpClient";
+// [학습 포인트 1] 지도 컴포넌트 및 설정 임포트
+import NaverDynamicMap from "../components/NaverDynamicMap";
+import { MAP_DEFAULT_ZOOM, MAP_DEFAULT_CENTER, NAVER_MAP_CLIENT_ID } from "../config/mapConfig";
 
 export default function DriverActiveSession({ route, navigation }) {
-  // [학습 포인트 1] 이전 화면에서 넘겨받은 데이터(Params) 추출
-  // route.params를 통해 sessionId, linkToken 등 핵심 식별자를 가져옵니다.
   const {
     sessionId,
     linkToken,
@@ -13,16 +14,18 @@ export default function DriverActiveSession({ route, navigation }) {
     driverToken,
   } = route.params || {};
 
-  // 세션 상태와 운전자 위치 정보를 관리하는 State
   const [sessionStatus, setSessionStatus] = useState(initialSessionStatus || "active");
   const [driverLocation, setDriverLocation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   /**
-   * [학습 포인트 2] 서버로부터 운전자 위치 조회 (GET 요청)
-   * 특정 세션의 현재 저장된 운전자 위치를 가져옵니다.
+   * [학습 포인트 2] 지도 좌표 바인딩
+   * 서버에서 받은 위치가 있으면 그 좌표를 사용하고, 없으면 기본 중심점(서울시청)을 보여줍니다.
    */
+  const mapLatitude = driverLocation?.latitude ?? MAP_DEFAULT_CENTER.latitude;
+  const mapLongitude = driverLocation?.longitude ?? MAP_DEFAULT_CENTER.longitude;
+
   const fetchDriverLocation = async () => {
     if (!sessionId) {
       setError("세션 ID가 없습니다.");
@@ -33,23 +36,18 @@ export default function DriverActiveSession({ route, navigation }) {
     try {
       const result = await requestJson({
         method: "GET",
-        // 경로 파라미터(Path Parameter)에 sessionId를 포함시킵니다.
         path: `/api/v1/sessions/${sessionId}/driver-location`,
         headers: authHeader(driverToken),
       });
-      // 성공 시 위치 정보 업데이트
-      setDriverLocation(result.location);
+      // 성공 시 위치 정보를 업데이트하면 지도가 자동으로 리렌더링되며 마커가 이동합니다.
+      setDriverLocation(result.location || null);
     } catch (e) {
-      setError(e.message || "운전자 위치 조회 실패");
+      setError(e.message || "위치 정보 조회 실패");
     } finally {
       setIsLoading(false);
     }
   };
 
-  /**
-   * [학습 포인트 3] 세션 강제 종료 (POST 요청)
-   * 운전자가 직접 세션을 종료하고 탑승자의 접근을 차단합니다.
-   */
   const endSession = async () => {
     if (!sessionId) return;
     setIsLoading(true);
@@ -58,23 +56,19 @@ export default function DriverActiveSession({ route, navigation }) {
       const result = await requestJson({
         method: "POST",
         path: `/api/v1/sessions/${sessionId}/end`,
-        headers: { ...authHeader(driverToken) },
-        body: { reason: "driver_end" }, // 종료 사유를 본문에 담아 보냄
+        headers: { ...authHeader(driverToken), "Content-Type": "application/json" },
+        body: { reason: "driver_end" },
       });
 
-      // 서버에서 바뀐 상태 반영
       setSessionStatus(result.session_status || "ended");
-      
-      // [학습 포인트 4] 안내 화면으로 이동
-      // 종료 결과(링크가 몇 개나 취소되었는지 등)를 함께 전달합니다.
       navigation.navigate("SessionStateNotice", {
         linkToken,
-        reason: result.reason || "driver_end",
         canAccess: false,
-        message: `세션이 종료되었습니다. (연결된 링크 ${result.link_revoked_count || 0}개 무효화)`,
+        reason: result.reason || "driver_end",
+        message: `세션이 종료되었습니다. (${result.link_revoked_count || 0}개 링크 무효화)`,
       });
     } catch (e) {
-      setError(e.message || "세션 종료 중 오류 발생");
+      setError(e.message || "세션 종료 실패");
     } finally {
       setIsLoading(false);
     }
@@ -93,32 +87,35 @@ export default function DriverActiveSession({ route, navigation }) {
         <Text style={styles.value}>{sessionStatus}</Text>
       </View>
       <View style={styles.row}>
-        <Text style={styles.label}>링크 토큰</Text>
-        <Text style={styles.value}>{linkToken || "-"}</Text>
-      </View>
-      <View style={styles.row}>
-        <Text style={styles.label}>만료 예정</Text>
-        <Text style={styles.value}>{sessionExpiresAt || "-"}</Text>
-      </View>
-      <View style={styles.row}>
-        <Text style={styles.label}>내 현재 위치 (서버 기록)</Text>
+        <Text style={styles.label}>조회된 위치 (지도 마커)</Text>
         <Text style={styles.value}>
           {driverLocation
-            ? `위도: ${driverLocation.latitude}, 경도: ${driverLocation.longitude}`
-            : "조회된 위치 없음"}
+            ? `위도 ${driverLocation.latitude}, 경도 ${driverLocation.longitude}`
+            : "아직 위치 정보가 없습니다."}
         </Text>
       </View>
 
-      {/* 에러가 있을 경우 빨간 글씨로 안내 */}
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {/* [학습 포인트 3] 공통 지도 컴포넌트 호출 
+          좌표가 바뀔 때마다 WebView 내부의 지도가 갱신됩니다.
+      */}
+      <NaverDynamicMap
+        clientId={NAVER_MAP_CLIENT_ID}
+        latitude={mapLatitude}
+        longitude={mapLongitude}
+        zoom={MAP_DEFAULT_ZOOM}
+        markerTitle="탑승자 위치"
+        markerText={driverLocation ? "탑승자의 현재 위치입니다" : "위치를 불러오는 중..."}
+      />
 
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      
       <View style={styles.row}>
         {isLoading ? <ActivityIndicator size="small" color="#000" /> : null}
       </View>
 
       <View style={styles.row}>
         <Button
-          title="운전자 위치 새로고침"
+          title="위치 정보 불러오기"
           onPress={fetchDriverLocation}
           disabled={!sessionId || isLoading}
         />
@@ -135,7 +132,7 @@ export default function DriverActiveSession({ route, navigation }) {
 
       <View style={styles.row}>
         <Button
-          title="탑승자 화면 샘플 보기"
+          title="탑승자 화면 샘플 열기"
           onPress={() =>
             navigation.navigate("PassengerLinkLanding", {
               linkToken: linkToken || "link-001",
@@ -146,6 +143,11 @@ export default function DriverActiveSession({ route, navigation }) {
           disabled={!linkToken}
         />
       </View>
+
+      <View style={styles.row}>
+        <Text style={styles.label}>세션 만료 시간</Text>
+        <Text style={styles.value}>{sessionExpiresAt || "-"}</Text>
+      </View>
     </View>
   );
 }
@@ -154,7 +156,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    gap: 12,
+    gap: 10,
     backgroundColor: "#fff",
   },
   title: {
@@ -177,6 +179,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: "#cc0000",
-    marginTop: 4,
+    marginTop: 6,
   },
 });

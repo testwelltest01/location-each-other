@@ -1,15 +1,11 @@
-# Expo 모바일 앱 실행 가이드 (MVP 화면 뼈대)
+﻿# Expo 실행 가이드 (MVP)
 
-이 문서는 `react-native-app` 디렉터리의 Expo 스켈레톤 앱을 로컬에서 실행하는 최소 방법만 정리합니다.
+## 0) 사전 준비
+- Node.js 18+
+- Expo Go (iOS/Android)
+- 백엔드 API 서버 URL: `http://<PC_IP>:8000`
 
-## 1) 사전 준비
-
-- Node.js 18+ 권장
-- npm 또는 yarn
-- iOS는 Xcode/시뮬레이터, Android는 Android Studio/에뮬레이터 또는 실제 기기
-- 모바일 실행용 Expo Go 설치(실기기)
-
-## 2) 앱 실행
+## 1) 앱 실행
 
 ```bash
 cd C:\Users\user\Desktop\20260320\react-native-app
@@ -17,25 +13,42 @@ npm install
 npm run start
 ```
 
-- `npm run start`는 Expo 개발 서버를 띄웁니다.
-- 터미널에 출력되는 QR 코드를 iOS/Android Expo Go로 스캔해서 실행합니다.
+- `expo start` 실행 후 표시되는 QR 코드를 iPhone 12 mini의 Expo Go로 스캔합니다.
+- 실제 단말에서 테스트하려면 같은 네트워크(Wi-Fi)에서 백엔드 주소를 PC LAN IP로 설정하세요.
 
-## 3) 바로 실행(에뮬레이터)
+## 2) 앱 환경변수
 
-```bash
-cd C:\Users\user\Desktop\20260320\react-native-app
-npm run android   # Android 에뮬레이터 실행
-# npm run ios     # macOS + Xcode 환경에서 iOS 실행
-# npm run web     # 브라우저(web) 실행
+`EXPO_PUBLIC_NAVER_MAP_CLIENT_ID`를 사용해 Naver Map 클라이언트 키를 주입합니다.
+- React Native 앱에서 읽는 변수: `EXPO_PUBLIC_NAVER_MAP_CLIENT_ID`
+- 클라이언트 키는 앱 시작 전 환경변수로 설정
+
+Windows 예시(PowerShell):
+
+```powershell
+$env:EXPO_PUBLIC_NAVER_MAP_CLIENT_ID="<YOUR_NAVER_CLIENT_ID>"
+npm run start
 ```
 
-## 4) 검증 체크리스트
+권장: 프로젝트 루트에 `.env` 또는 `.env.local` 작성
 
-- [ ] 앱이 열리고 화면 5개가 보이는가
-- [ ] 탭/버튼으로 화면 이동이 가능한가 (`DriverStart` → `DriverActiveSession` 등)
-- [ ] 뒤로가기/화면 전환이 충돌 없이 동작하는가
+```bash
+EXPO_PUBLIC_NAVER_MAP_CLIENT_ID=<YOUR_NAVER_CLIENT_ID>
+```
 
-## 5) 주의
+> `Client Secret`은 앱에 전달하지 않습니다. Secret은 서버/백엔드에서만 사용하세요.
 
-- 현재 단계는 API 연동 없이 더미 데이터/기본 상태로 동작합니다.
-- 백엔드 연동은 나중 단계에서 `axios/fetch`로 연결합니다.
+## 3) 동작 확인 체크
+
+### DriverActiveSession
+1. 세션 생성 후 `DriverActiveSession` 진입
+2. `Load driver location` 버튼 클릭
+3. 지도 출력 + 마커 표시 확인
+
+### PassengerShare
+1. 링크 진입 후 `PassengerShare` 진입
+2. 위치 권한 허용
+3. 지도에 현재 위치 마커 표시 확인
+4. `Start sharing` 토글 시 주기 호출(`5초`)이 동작하고 `point_id` 또는 `saved_at` 값 표시 확인
+
+### 링크 상태
+1. 세션 종료/만료 후 `SessionStateNotice`에서 `can_access`가 반영되는지 확인
