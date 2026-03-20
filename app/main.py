@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.v1.links import router as links_router
 from app.api.v1.sessions import router as sessions_router
 from app.db import init_db
@@ -9,6 +11,15 @@ from app import models
 
 
 app = FastAPI(title="Pickup Session MVP")
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(sessions_router)
 app.include_router(links_router)

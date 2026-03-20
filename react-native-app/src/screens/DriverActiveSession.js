@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
+  Share,
 } from "react-native";
 import * as Location from "expo-location";
 import requestJson, { authHeader } from "../api/httpClient";
@@ -222,9 +223,15 @@ export default function DriverActiveSession({ route, navigation }) {
   };
 
   const copyToClipboard = async (token) => {
-    // 실제 환경에서는 웹 사이트 도메인을 포함해야 함 (예: https://myapp.com/share/)
-    const fullUrl = `https://your-app-domain.com/share/${token}`;
-    alert(`아래 주소를 길게 눌러 복사해 주세요:\n\n${fullUrl}`);
+    const fullUrl = `http://172.30.1.83:5173/?token=${token}`;
+    try {
+      await Share.share({
+        message: `탑승자 위치 공유 링크입니다:\n${fullUrl}`,
+        url: fullUrl, // iOS 전용
+      });
+    } catch (error) {
+      alert(error.message);
+    }
   };
 
   const endSession = async () => {
